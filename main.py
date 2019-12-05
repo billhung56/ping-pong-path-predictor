@@ -73,9 +73,12 @@ if __name__ == '__main__':
     delta_frame = start_frame + args.delta
     print(f'process frame at {start_frame} and {delta_frame}')
     print(f'draw trajectory to frame {end_frame}')
+    
+    # (start_frame, end_frame, delta_frame are frame indices)
 
+
+    # Phase 1: play the video until start frame
     frame_interval = 1.0 / frame_rate
-
     curr_frame = 0
     ret, frame1 = cap.read()
     curr_frame += 1
@@ -95,9 +98,12 @@ if __name__ == '__main__':
         cv2.imshow("output", frame2)
         curr_frame += 1
     # Now that frame1 and frame2 are two images for prediction.
+    # frame1 is the image of start_frame
+    # and frame2 the image of delta_frame
     
-    # MAIN TASK HERE
-    
+
+    # Phase 2: (MAIN TASK) predict trajectory base on frame1 and frame2
+
     # compute optical flow between frame1 and frame2
     # Parameters for lucas kanade optical flow
     lk_params = dict( winSize  = (15,15),
@@ -121,41 +127,39 @@ if __name__ == '__main__':
     if len(good_new) != 1:
         raise RuntimeError('optical flow failed to find velocity')
     old, new = good_old[0], good_new[0]
-    a, b = new.ravel()
-    c, d = old.ravel()
-    velocity = (a - c, b - d)  # unit is pixel / (delta frames)
-    print(f'velocity = {velocity}')
-
-    v = np.array(velocity)
-    v = v * 10
-    print(c, d)
-    mask = cv2.line(mask, (c, d), (c+v[0], d+v[1]), (0, 0, 255), 3)
-    mask = cv2.circle(mask, (c, d), 10, (0, 0, 255), -1)
-    img = cv2.add(frame1, mask)
-    print(c, d, a, b)
-    print(v)
-    cv2.imshow('output', img)
-
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-
-
 
     # calculate velocity at ball_position (directly use optical flow for now),
     # then the trajectory. Note the unit of time here is frame, so unit of
-    # velocity is pixel/frame. Also for traj, use frame1_id as t=0.
-    #velocity = convert from representation of flow
-    #traj = compute_trajectory(ball_position, velocity)
-    
-    # VISUALIZATION
-    # Now for testing purpose, just draw traj and ball on frame1 and output the image.
-    # (can use cv2.imshow() or cv2.imwrite())
-    # TODO: eventually, change to draw on every frame of video after start.
-    #traj_points = traj(np.arange(frame2_id - frame1_id + 1))
-    #viz_img = viz.draw_trajectory(frame1, traj_points, ball_position)
-    #cv2.imshow("Trajectory Prediction", viz_img)
+    # velocity is pixel/frame.
+    a, b = new.ravel()
+    c, d = old.ravel()
+    velocity = ((a - c) / args.delta, (b - d) / args.delta)
+    print(f'velocity = {velocity}')
 
-    # perhaps output a video??
+    # (TEMPORARY) visualize the velocity
+    v = np.array(velocity)
+    v = v * 10  # scale velocity for drawing
+    mask = cv2.line(mask, (c, d), (c+v[0], d+v[1]), (0, 0, 255), 3)
+    mask = cv2.circle(mask, (c, d), 10, (0, 0, 255), -1)
+    img = cv2.add(frame1, mask)
+    cv2.imshow('output', img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    # TODO: compute and display traj prediction
+    #traj = compute_trajectory(ball_position, velocity)
+    #traj_points = traj(np.arange(frame2_id - frame1_id + 1))
+    
+    # TODO: Phase 3: keep playing video with drawn trajectory
+    while True:
+        ret, frame = cap.read()
+        if not ret:  # no more frames
+            print("Video ended.")
+            break
+        img = cv2.add(frame, mask)
+        cv2.imshow('output', img)
+        k = cv2.waitKey(int(frame_interval * 1000)) & 0xff
+        if k == 27:
+            break
 
 
