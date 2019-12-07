@@ -26,6 +26,38 @@ from PIL import Image
 import time as ctime
 import locate_ball
 
+# gravity in pixel/sec. need tuning for different camera Orz.
+base_ng = 0.0038  # (for rvid)
+#base_ng = 0.00215  # or 0.0024 (for vid)
+def compute_trajectory(p, v, ng):
+    """compute poly^2 trajectory from position and velocity
+       Returns x(t), y(t)
+        p: position/pose (p_x, p_y)
+        v: velocity (v_x, v_y) (pixel/frame)
+        ng: gravity (pixel/frame^2)
+    """
+    xOt = np.polynomial.polynomial.Polynomial((p[0], v[0]))
+    yOt = np.polynomial.polynomial.Polynomial((p[1], v[1], ng/2))
+    return xOt, yOt
+
+def extract_background(vidpath):
+    cap = cv2.VideoCapture(vidpath)
+
+    # Randomly select 25 frames
+    frameIds = cap.get(cv2.CAP_PROP_FRAME_COUNT) * np.random.uniform(size=25)
+     
+    # Store selected frames in an array
+    frames = []
+    for fid in frameIds:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, fid)
+        ret, frame = cap.read()
+        frames.append(frame)
+     
+    # Calculate the median along the time axis
+    medianFrame = np.median(frames, axis=0).astype(dtype=np.uint8)    
+    return medianFrame
+     
+
 if __name__ == '__main__':
     cmd_parser = argparse.ArgumentParser()
     cmd_parser.add_argument("video", help="path to video of ball movement")
@@ -33,6 +65,10 @@ if __name__ == '__main__':
     cmd_parser.add_argument("--duration", help="duration of the trajectory to predict (in ISO format)", default="00:00:01")
     cmd_parser.add_argument("--delta", type=int, choices=range(1,11), help="frame difference for optical flow", default=1)
     args = cmd_parser.parse_args()
+
+    # Display background
+    background = extract_background(args.video)
+    cv2.imshow('background', background)
 
     cap = cv2.VideoCapture(args.video)
     # get info about video
@@ -110,7 +146,13 @@ if __name__ == '__main__':
                       maxLevel = 2,
                       criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
     # get position(s) to query for optical flow. unit is pixel
+    #filtered_frame = cv2.subtract(frame1, background)
+    #cv2.imshow("to_locate", filtered_frame)
+    #cv2.waitKey(0)
+    #cv2.destroyAllWindows()
+    #ball_position = locate_ball.locate_ball(filtered_frame)
     ball_position = locate_ball.locate_ball(frame1)
+    assert ball_position is not None
     print('ball position:', ball_position)
 
     # get flow information. unit is pixel
@@ -139,27 +181,77 @@ if __name__ == '__main__':
     # (TEMPORARY) visualize the velocity
     v = np.array(velocity)
     v = v * 10  # scale velocity for drawing
-    mask = cv2.line(mask, (c, d), (c+v[0], d+v[1]), (0, 0, 255), 3)
-    mask = cv2.circle(mask, (c, d), 10, (0, 0, 255), -1)
-    img = cv2.add(frame1, mask)
+    mask = cv2.line(mask, (int(c), int(d)), (int(c+v[0]), int(d+v[1])), (0, 0, 255), 2)
+    frame1 = cv2.circle(frame1, (int(c), int(d)), 5, (255,255,0), -1)
+
+    # TODO: compute and display traj prediction
+    traj_x, traj_y = compute_trajectory(ball_position, velocity, base_ng / frame_interval)
+    traj_interval = end_frame - start_frame + 1
+    end_x = np.floor(traj_x(traj_interval))
+    start_x = np.rint(ball_position[0])
+    if end_x > start_x:
+        xs = np.arange(start_x, end_x+1)
+    else:
+        xs = np.arange(start_x, end_x-1, -1)
+    ts = (xs - start_x) / velocity[0]
+    ys = traj_y(ts)
+
+    # for gravity tuning
+    #tangent_vec = np.array((xs[1] - xs[0], ys[1] - ys[0]))
+    #unit_v = v / np.linalg.norm(v)
+    #unit_tv = tangent_vec / np.linalg.norm(tangent_vec)
+    #print('tangent error =', np.linalg.norm(unit_v - unit_tv))
+
+    xs = xs.astype(int)
+    ys = np.rint(ys).astype(int)
+    
+    for i in range(1, xs.shape[0]):
+        mask = cv2.line(mask, (xs[i-1], ys[i-1]), (xs[i], ys[i]), (0,0,255), 2)
+    img = cv2.add(frame2, mask)
     cv2.imshow('output', img)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-    # TODO: compute and display traj prediction
-    #traj = compute_trajectory(ball_position, velocity)
-    #traj_points = traj(np.arange(frame2_id - frame1_id + 1))
     
-    # TODO: Phase 3: keep playing video with drawn trajectory
+    
+    # TODO: Phase 3: keep playing video with drawn trajectory,
+    # and draw ball track
+    
+    # draw track from frame1 to frame2
+    mask = cv2.line(mask, (a,b), (c,d), (255,255,255), 2)
+
+    p0 = good_new.reshape(-1,1,2)
+    last_frame = frame2
+    old_gray = frame2_gray.copy()
     while True:
         ret, frame = cap.read()
         if not ret:  # no more frames
             print("Video ended.")
             break
+        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # optical flow for tracking
+        p1, st, err = cv2.calcOpticalFlowPyrLK(old_gray, frame_gray, p0, None, **lk_params)
+
+        good_new = p1[st==1]
+        good_old = p0[st==1]
+        old, new = good_old[0], good_new[0]
+
+        a,b = new.ravel()
+        c,d = old.ravel()
+        mask = cv2.line(mask, (a,b),(c,d), (255,255,255), 2)
+        frame = cv2.circle(frame, (a,b), 5, (255,255,0), -1)
+
+
         img = cv2.add(frame, mask)
         cv2.imshow('output', img)
         k = cv2.waitKey(int(frame_interval * 1000)) & 0xff
         if k == 27:
             break
+        # Now update the previous frame and previous points
+        p0 = good_new.reshape(-1,1,2)
+        last_frame = frame
+        old_gray = frame_gray.copy()
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 
