@@ -64,8 +64,6 @@ def locate_ball(img, deback_img):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     center = centers[np.argmax(signals)]
-    print('use center:', center)
-
     return center
     
 

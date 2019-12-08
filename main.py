@@ -156,16 +156,14 @@ if __name__ == '__main__':
             assert int(cap.get(cv2.CAP_PROP_POS_FRAMES)) == delta_frame
             # now have frames for prediction,
             # so draw trajectory before proceeding
+            
             frame2 = frame
-            # Now that frame1 and frame2 are two images for prediction.
+            # frame1 and frame2 are two images for prediction.
             # frame1 is the image of start_frame
             # and frame2 the image of delta_frame
 
-            # Phase 2: (MAIN TASK) predict trajectory base on frame1 and frame2
-
-
-            # get velocity at start frame
-            # get flow information. unit is pixel
+            # MAIN TASK HERE:
+            # get velocity at start frame. unit is pixel/frame
             track_points = [ball_position]
             velocity = VelocityUtils.with_LK_optical_flow(frame1, frame2, track_points, args.delta)
             print(f'velocity = {velocity}')
@@ -178,7 +176,7 @@ if __name__ == '__main__':
             mask = cv2.line(mask, (int(c), int(d)), (int(c+v[0]), int(d+v[1])), (0, 0, 255), 2)
             frame1 = cv2.circle(frame1, (int(c), int(d)), 5, (255,255,0), -1)
 
-            # compute and display traj prediction
+            # compute traj prediction from velocity
             traj_x, traj_y = compute_trajectory(ball_position, velocity, base_ng / frame_interval)
             traj_interval = end_frame - start_frame + 1
             end_x = np.floor(traj_x(traj_interval))
@@ -190,15 +188,9 @@ if __name__ == '__main__':
             ts = (xs - start_x) / velocity[0]
             ys = traj_y(ts)
 
-            # for gravity tuning
-            #tangent_vec = np.array((xs[1] - xs[0], ys[1] - ys[0]))
-            #unit_v = v / np.linalg.norm(v)
-            #unit_tv = tangent_vec / np.linalg.norm(tangent_vec)
-            #print('tangent error =', np.linalg.norm(unit_v - unit_tv))
-
+            # draw prediction
             xs = xs.astype(int)
             ys = np.rint(ys).astype(int)
-            
             for i in range(1, xs.shape[0]):
                 mask = cv2.line(mask, (xs[i-1], ys[i-1]), (xs[i], ys[i]), (0,0,255), 2)
             img = cv2.add(frame2, mask)
@@ -206,8 +198,8 @@ if __name__ == '__main__':
             cv2.waitKey(0)
             cv2.destroyAllWindows()
 
-        # keep playing video with drawn trajectory,
-        # and draw ball track
+        # keep playing video with drawn prediction,
+        # and also draw ball track
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         # optical flow for tracking
         p1, st, err = cv2.calcOpticalFlowPyrLK(old_gray, frame_gray, p0, None, **(VelocityUtils.lk_params))
@@ -231,9 +223,6 @@ if __name__ == '__main__':
         p0 = good_new.reshape(-1,1,2)
         last_frame = frame
         old_gray = frame_gray.copy()
-
-    
-    
     
     cv2.waitKey(0)
     cv2.destroyAllWindows()
