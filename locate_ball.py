@@ -3,9 +3,9 @@ import cv2
 import numpy as np
 import imutils
 
-ball_img = cv2.imread("bootstrap_img2.png")
+ball_img = cv2.imread("bootstrap_img4.png")
 
-def locate_ball(img):
+def locate_ball(img, deback_img):
     scale = img.shape[1] / 600
     # convert it into HSV
     ball_hsv = cv2.cvtColor(ball_img, cv2.COLOR_BGR2HSV)
@@ -18,7 +18,7 @@ def locate_ball(img):
     
     # frame_threshed = cv2.inRange(hsv, orange_min, orange_max)
     # cv2.imwrite('output.jpg', frame_threshed)
-    
+ 
     # resize the frame, blur it, and convert it to the HSV
     # color space
     img = imutils.resize(img, width=600)
@@ -40,17 +40,34 @@ def locate_ball(img):
     center = None
     
     # only proceed if at least one contour was found
-    if len(cnts) > 0:
+    signals = []
+    centers = []
+    print('num features:', len(cnts))
+    assert len(cnts) > 0
+    mask = np.zeros_like(deback_img)
+    for c in cnts:
         # find the largest contour in the mask, then use
         # it to compute the minimum enclosing circle and
         # centroid
-        c = max(cnts, key=cv2.contourArea)
-        #c = cnts[0]
         ((x, y), radius) = cv2.minEnclosingCircle(c)
         M = cv2.moments(c)
         center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
+        scenter = (int(center[0] * scale), int(center[1] * scale))
+        cv2.circle(mask, (int(scenter[0]), int(scenter[1])), 5, (255,255,255), -1)
+        patch = deback_img[scenter[1]-5:scenter[1]+6, scenter[0]-5:scenter[0]+6, :]
+        signal = np.sum(patch, axis=(0,1)).astype(np.float32)
+        signal /= 121.0
+        print('signal level at', center, ":", signal)
+        signals.append(np.linalg.norm(signal))
+        centers.append(scenter)
+    cv2.imshow("deback", cv2.add(deback_img, mask))
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    center = centers[np.argmax(signals)]
+    print('use center:', center)
+            
 
-    return (center[0] * scale, center[1] * scale)
+    return center
     
 
 if __name__ == '__main__':
@@ -58,7 +75,7 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument("-f", "--frame", type=str, default="cropped_frame1.png",
                     help="input frame")
-    ap.add_argument("-i", "--img", type=str, default="bootstrap_img2.png",
+    ap.add_argument("-i", "--img", type=str, default="bootstrap_img.png",
                     help="image of the ball")
     args = vars(ap.parse_args())
     
@@ -119,7 +136,6 @@ if __name__ == '__main__':
         #print(ass, center)
         #assert ass == center
 
-    
         # draw the circle and centroid on the frame,
         # then update the list of tracked points
         cv2.circle(frame, (int(x), int(y)), int(radius),

@@ -27,8 +27,8 @@ import time as ctime
 import locate_ball
 
 # gravity in pixel/sec. need tuning for different camera Orz.
-base_ng = 0.0038  # (for rvid)
-#base_ng = 0.00215  # or 0.0024 (for vid)
+#base_ng = 0.0038  # (for rvid)
+base_ng = 0.00215  # or 0.0024 (for vid)
 def compute_trajectory(p, v, ng):
     """compute poly^2 trajectory from position and velocity
        Returns x(t), y(t)
@@ -66,9 +66,14 @@ if __name__ == '__main__':
     cmd_parser.add_argument("--delta", type=int, choices=range(1,11), help="frame difference for optical flow", default=1)
     args = cmd_parser.parse_args()
 
-    # Display background
-    background = extract_background(args.video)
-    cv2.imshow('background', background)
+    # Read background image.
+    # If not found, preprocess video and
+    # store it for later.
+    vidname = args.video[:args.video.rfind('.')]
+    background = cv2.imread(vidname + "_background.jpg")
+    if background is None:
+        background = extract_background(args.video)
+        cv2.imwrite(vidname + "_background.jpg", background)
 
     cap = cv2.VideoCapture(args.video)
     # get info about video
@@ -146,12 +151,8 @@ if __name__ == '__main__':
                       maxLevel = 2,
                       criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
     # get position(s) to query for optical flow. unit is pixel
-    #filtered_frame = cv2.subtract(frame1, background)
-    #cv2.imshow("to_locate", filtered_frame)
-    #cv2.waitKey(0)
-    #cv2.destroyAllWindows()
-    #ball_position = locate_ball.locate_ball(filtered_frame)
-    ball_position = locate_ball.locate_ball(frame1)
+    filtered_frame = cv2.subtract(frame1, background)
+    ball_position = locate_ball.locate_ball(frame1, filtered_frame)
     assert ball_position is not None
     print('ball position:', ball_position)
 
