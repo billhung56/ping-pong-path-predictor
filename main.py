@@ -30,15 +30,16 @@ import VelocityUtils
 # gravity in pixel/sec. need tuning for different camera Orz.
 #base_ng = 0.0036  # (for rvid)
 base_ng = 0.00215  # or 0.0024 (for vid)
-def compute_trajectory(p, v, ng):
+#base_ng = 0.0014
+def compute_trajectory(p, v, ng, h=0.0):
     """compute poly^2 trajectory from position and velocity
        Returns x(t), y(t)
         p: position/pose (p_x, p_y)
         v: velocity (v_x, v_y) (pixel/frame)
         ng: gravity (pixel/frame^2)
     """
-    xOt = np.polynomial.polynomial.Polynomial((p[0], v[0]))
-    yOt = np.polynomial.polynomial.Polynomial((p[1], v[1], ng/2))
+    xOt = np.polynomial.polynomial.Polynomial((p[0]-(v[0] * h), v[0]))
+    yOt = np.polynomial.polynomial.Polynomial((p[1]-(v[1] * h)+(h*h*ng/2), v[1]-(2*h*ng/2), ng/2))
     return xOt, yOt
 
 def extract_background(vidpath):
@@ -63,7 +64,7 @@ if __name__ == '__main__':
     cmd_parser = argparse.ArgumentParser()
     cmd_parser.add_argument("video", help="path to video of ball movement")
     cmd_parser.add_argument("--start", help="time to start drawing the trajectory and used for prediction (in ISO format)", default="00:00:00")
-    cmd_parser.add_argument("--duration", help="duration of the trajectory to predict (in ISO format)", default="00:00:01")
+    cmd_parser.add_argument("--duration", help="duration of the trajectory to predict (in ISO format)", default="00:00:03")
     cmd_parser.add_argument("--delta", type=int, choices=range(1,11), help="frame difference for optical flow", default=1)
     args = cmd_parser.parse_args()
 
@@ -133,10 +134,14 @@ if __name__ == '__main__':
         if k == 27:
             break
     assert int(cap.get(cv2.CAP_PROP_POS_FRAMES)) == curr_frame
+    cv2.imwrite("frame1.jpg", frame1)
+    cv2.imshow("output", frame1)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
     # Step 2. get initial position(s) of the ball. unit is pixel
     filtered_frame = cv2.subtract(frame1, background)
-    ball_position = locate_ball.locate_ball(frame1, filtered_frame)
+    ball_position = locate_ball.locate_ball(frame1, filtered_frame, viz=True)
     assert ball_position is not None
     print('ball position:', ball_position)
 
@@ -144,19 +149,22 @@ if __name__ == '__main__':
     mask = np.zeros_like(frame1)
 
     p0 = np.array([[ball_position]], dtype=np.float32)
-    last_frame = frame1
     old_gray = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)
+    required_frames = [frame1]
     while True:
         curr_frame += 1
         ret, frame = cap.read()
         if not ret:  # no more frames
             print("Video ended.")
             break
+        if curr_frame <= delta_frame:
+            required_frames.append(frame)
         if curr_frame == delta_frame:
             assert int(cap.get(cv2.CAP_PROP_POS_FRAMES)) == delta_frame
+            assert len(required_frames) == args.delta + 1
             # now have frames for prediction,
             # so draw trajectory before proceeding
-            
+ 
             frame2 = frame
             # frame1 and frame2 are two images for prediction.
             # frame1 is the image of start_frame
@@ -164,12 +172,26 @@ if __name__ == '__main__':
 
             # MAIN TASK HERE:
             # get velocity at start frame. unit is pixel/frame
-            track_points = [ball_position]
-            velocity = VelocityUtils.with_LK_optical_flow(frame1, frame2, track_points, args.delta)
-            print(f'velocity = {velocity}')
+            angles = np.linspace(0, 2*np.pi, num=8, endpoint=False)
+            dx = 10 * np.cos(angles)
+            dy = 10 * np.sin(angles)
+            dx += ball_position[0]
+            dy += ball_position[1]
+            track_points = np.stack((dx, dy)).T.tolist()
+            print(track_points)
+            #track_points = [ball_position]
+
+            if args.delta == 1:
+                velocity = VelocityUtils.with_LK_optical_flow(frame1, frame2, track_points)
+                #velocity = VelocityUtils.with_FB_optical_flow(frame1, frame2, track_points)
+                print(f'velocity = {velocity}')
+            else:
+                # try velocities at multiple frame
+                velocities = VelocityUtils.with_LK_optical_flow_N(required_frames, track_points)
+                velocity = velocities[0]
 
 
-            # (TEMPORARY) visualize the velocity
+            # (TEMPORARY) visualize the first velocity
             v = np.array(velocity)
             v = v * 10  # scale velocity for drawing
             c, d = ball_position[0], ball_position[1]
@@ -177,7 +199,20 @@ if __name__ == '__main__':
             frame1 = cv2.circle(frame1, (int(c), int(d)), 5, (255,255,0), -1)
 
             # compute traj prediction from velocity
-            traj_x, traj_y = compute_trajectory(ball_position, velocity, base_ng / frame_interval)
+            if args.delta == 1:
+                traj_x, traj_y = compute_trajectory(ball_position, velocity, base_ng / frame_interval)
+            else:
+                traj_x, traj_y = compute_trajectory(ball_position, velocities[0], base_ng / frame_interval)
+                pos = np.array(ball_position) + velocities[0]
+                for i in range(1, len(velocities)):
+                    traj_xi, traj_yi = compute_trajectory(pos, velocities[i], base_ng / frame_interval, h=i)
+                    traj_x += traj_xi
+                    traj_y += traj_yi
+                    pos += velocities[i]
+                traj_x /= len(velocities)
+                traj_y /= len(velocities)
+
+
             traj_interval = end_frame - start_frame + 1
             end_x = np.floor(traj_x(traj_interval))
             start_x = np.rint(ball_position[0])
@@ -221,7 +256,6 @@ if __name__ == '__main__':
             break
         # Now update the previous frame and previous points
         p0 = good_new.reshape(-1,1,2)
-        last_frame = frame
         old_gray = frame_gray.copy()
     
     cv2.waitKey(0)
