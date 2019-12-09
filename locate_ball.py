@@ -3,16 +3,21 @@ import cv2
 import numpy as np
 import imutils
 
-ball_img = cv2.imread("bootstrap_img.png")
-# convert it into HSV
-ball_hsv = cv2.cvtColor(ball_img, cv2.COLOR_BGR2HSV)
-# strip out zeros
-ball_hsv_no_zeros = (ball_hsv[~np.any(ball_hsv == 0, axis=2)])
-orange_min = ball_hsv_no_zeros[np.argmin(ball_hsv_no_zeros[:, 0]), :]
-orange_max = np.array([np.max(ball_hsv_no_zeros[:, 0]), 255, 255], dtype=np.uint8)
+ball_img = cv2.imread("bootstrap_img4.png")
+
+ball_center = ()
+
 
 def locate_ball(img, deback_img):
     scale = img.shape[1] / 600
+    # convert it into HSV
+    ball_hsv = cv2.cvtColor(ball_img, cv2.COLOR_BGR2HSV)
+    
+    # strip out zeros
+    ball_hsv_no_zeros = (ball_hsv[~np.any(ball_hsv == 0, axis=2)])
+    
+    orange_min = ball_hsv_no_zeros[np.argmin(ball_hsv_no_zeros[:, 0]), :]
+    orange_max = np.array([np.max(ball_hsv_no_zeros[:, 0]), 255, 255], dtype=np.uint8)
     
     # frame_threshed = cv2.inRange(hsv, orange_min, orange_max)
     # cv2.imwrite('output.jpg', frame_threshed)
@@ -41,8 +46,7 @@ def locate_ball(img, deback_img):
     signals = []
     centers = []
     print('num features:', len(cnts))
-    if len(cnts) < 1:
-        return None
+    assert len(cnts) > 0
     mask = np.zeros_like(deback_img)
     for c in cnts:
         # find the largest contour in the mask, then use
@@ -51,21 +55,46 @@ def locate_ball(img, deback_img):
         ((x, y), radius) = cv2.minEnclosingCircle(c)
         M = cv2.moments(c)
         center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
-        scenter_real = (center[0] * scale, center[1] * scale)
-        scenter = (int(scenter_real[0]), int(scenter_real[1]))
+        scenter = (int(center[0] * scale), int(center[1] * scale))
         cv2.circle(mask, (int(scenter[0]), int(scenter[1])), 5, (255,255,255), -1)
         patch = deback_img[scenter[1]-5:scenter[1]+6, scenter[0]-5:scenter[0]+6, :]
         signal = np.sum(patch, axis=(0,1)).astype(np.float32)
         signal /= 121.0
-        #print('signal level at', center, ":", signal)
+        print('signal level at', center, ":", signal)
         signals.append(np.linalg.norm(signal))
-        centers.append(scenter_real)
+        centers.append(scenter)
     cv2.imshow("deback", cv2.add(deback_img, mask))
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     center = centers[np.argmax(signals)]
+    print('use center:', center)
     return center
-    
+
+
+def manual_locate_call(img):
+    print ("Select the center of ball")
+    ball_center = ()
+
+    # mouse callback function
+    def mouse_callback(event, x, y, flags, params):
+        if event == cv2.EVENT_LBUTTONDOWN:
+            global ball_center
+            ball_center = (x, y)
+
+    cv2.namedWindow('locate ball', cv2.WINDOW_NORMAL)  # Can be resized
+    cv2.setMouseCallback('locate ball', mouse_callback)  # Mouse callback
+
+    while True:
+        cv2.imshow('locate ball', img)
+        k = cv2.waitKey(20) & 0xFF
+        if k == 27:
+            break
+        elif ball_center:
+            print("ball center: ", ball_center)
+            break
+    cv2.destroyWindow('locate ball')
+    return ball_center
+
 
 if __name__ == '__main__':
     # np.set_printoptions(threshold=np.inf)
@@ -116,7 +145,6 @@ if __name__ == '__main__':
     center = None
     
     # only proceed if at least one contour was found
-    print(len(cnts))
     if len(cnts) > 0:
         # find the largest contour in the mask, then use
         # it to compute the minimum enclosing circle and
