@@ -11,32 +11,35 @@ ball_hsv_no_zeros = (ball_hsv[~np.any(ball_hsv == 0, axis=2)])
 orange_min = ball_hsv_no_zeros[np.argmin(ball_hsv_no_zeros[:, 0]), :]
 orange_max = np.array([np.max(ball_hsv_no_zeros[:, 0]), 255, 255], dtype=np.uint8)
 
+ball_center = ()
+
+
 def locate_ball(img, deback_img):
     scale = img.shape[1] / 600
-    
+
     # frame_threshed = cv2.inRange(hsv, orange_min, orange_max)
     # cv2.imwrite('output.jpg', frame_threshed)
- 
+
     # resize the frame, blur it, and convert it to the HSV
     # color space
     img = imutils.resize(img, width=600)
     blurred = cv2.GaussianBlur(img, (11, 11), 0)
     hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
-    
+
     # construct a mask for the color "orange", then perform
     # a series of dilations and erosions to remove any small
     # blobs left in the mask
     mask = cv2.inRange(hsv, orange_min, orange_max)
     mask = cv2.erode(mask, None, iterations=2)
     mask = cv2.dilate(mask, None, iterations=2)
-    
+
     # find contours in the mask and initialize the current
     # (x, y) center of the ball
     cnts = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL,
                             cv2.CHAIN_APPROX_SIMPLE)
     cnts = imutils.grab_contours(cnts)
     center = None
-    
+
     # only proceed if at least one contour was found
     signals = []
     centers = []
@@ -65,7 +68,31 @@ def locate_ball(img, deback_img):
     cv2.destroyAllWindows()
     center = centers[np.argmax(signals)]
     return center
-    
+
+
+def manual_locate_call(img):
+    print("Select the center of ball")
+
+    # mouse callback function
+    def mouse_callback(event, x, y, flags, params):
+        if event == cv2.EVENT_LBUTTONDOWN:
+            global ball_center
+            ball_center = (x, y)
+
+    cv2.namedWindow('locate ball', cv2.WINDOW_NORMAL)  # Can be resized
+    cv2.setMouseCallback('locate ball', mouse_callback)  # Mouse callback
+
+    while True:
+        cv2.imshow('locate ball', img)
+        k = cv2.waitKey(20) & 0xFF
+        if k == 27:
+            break
+        elif ball_center:
+            print("ball center: ", ball_center)
+            break
+    cv2.destroyWindow('locate ball')
+    return ball_center
+
 
 if __name__ == '__main__':
     # np.set_printoptions(threshold=np.inf)
@@ -75,46 +102,46 @@ if __name__ == '__main__':
     ap.add_argument("-i", "--img", type=str, default="bootstrap_img.png",
                     help="image of the ball")
     args = vars(ap.parse_args())
-    
+
     # Read ball img
     ball_img = cv2.imread(args["img"])
-    
-    
+
+
     # Read the given frame
     frame = cv2.imread(args["frame"])
 
     # convert it into HSV
     ball_hsv = cv2.cvtColor(ball_img, cv2.COLOR_BGR2HSV)
-    
+
     # strip out zeros
     ball_hsv_no_zeros = (ball_hsv[~np.any(ball_hsv == 0, axis=2)])
-    
+
     orange_min = ball_hsv_no_zeros[np.argmin(ball_hsv_no_zeros[:, 0]), :]
     orange_max = np.array([np.max(ball_hsv_no_zeros[:, 0]), 255, 255], dtype=np.uint8)
-    
+
     # frame_threshed = cv2.inRange(hsv, orange_min, orange_max)
     # cv2.imwrite('output.jpg', frame_threshed)
-    
+
     # resize the frame, blur it, and convert it to the HSV
     # color space
     frame = imutils.resize(frame, width=600)
     blurred = cv2.GaussianBlur(frame, (11, 11), 0)
     hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
-    
+
     # construct a mask for the color "orange", then perform
     # a series of dilations and erosions to remove any small
     # blobs left in the mask
     mask = cv2.inRange(hsv, orange_min, orange_max)
     mask = cv2.erode(mask, None, iterations=2)
     mask = cv2.dilate(mask, None, iterations=2)
-    
+
     # find contours in the mask and initialize the current
     # (x, y) center of the ball
     cnts = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL,
                             cv2.CHAIN_APPROX_SIMPLE)
     cnts = imutils.grab_contours(cnts)
     center = None
-    
+
     # only proceed if at least one contour was found
     print(len(cnts))
     if len(cnts) > 0:
@@ -139,7 +166,7 @@ if __name__ == '__main__':
         cv2.circle(frame, (int(x), int(y)), int(radius),
                    (0, 255, 255), 2)
         cv2.circle(frame, center, 5, (0, 0, 255), -1)
-        
+
         cv2.imshow("Frame", frame)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
